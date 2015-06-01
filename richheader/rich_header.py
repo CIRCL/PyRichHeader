@@ -5,11 +5,12 @@ import sys
 import struct
 
 # I'm trying not to bury the magic number...
-CHECKSUM_MASK = 0x536e6144 # DanS (actuall SnaD)
+CHECKSUM_MASK = 0x536e6144  # DanS (actuall SnaD)
 RICH_TEXT = 'Rich'
 RICH_TEXT_LENGTH = len(RICH_TEXT)
 PE_START = 0x3c
 PE_FIELD_LENGTH = 4
+
 
 ##
 # A convenient exception to raise if the Rich Header doesn't exist.
@@ -17,26 +18,28 @@ class RichHeaderNotFoundException(Exception):
     def __init__(self):
         Exception.__init__(self, "Rich footer does not appear to exist")
 
+
 ##
 # Locate the body of the data that contains the rich header This will be
 # (roughly) between 0x3c and the beginning of the PE header, but the entire
 # thing up to the last checksum will be needed in order to verify the header.
 def get_file_header(file_name):
-    f = open(file_name,'rb')
+    f = open(file_name, 'rb')
 
-    #start with 0x3c
+    # start with 0x3c
     f.seek(PE_START)
     data = f.read(PE_FIELD_LENGTH)
 
-    if data == '': #File is empty, bail
+    if data == '':  # File is empty, bail
         raise RichHeaderNotFoundException()
-    end = struct.unpack('<L',data)[0] # get the value at 0x3c
+    end = struct.unpack('<L', data)[0]  # get the value at 0x3c
 
     f.seek(0)
-    data = f.read( end ) # read until that value is reached
+    data = f.read(end)  # read until that value is reached
     f.close()
 
     return data
+
 
 ##
 # This class assists in parsing the Rich Header from PE Files.
@@ -63,18 +66,18 @@ class ParsedRichHeader:
     # @throws RichHeaderNotFoundException if the file does not contain a rich header
     # @param file_name The PE File to be parsed
     def __init__(self, file_name):
-        ## The file that was parsed
+        # The file that was parsed
         self.file_name = file_name
-        self._parse( file_name )
+        self._parse(file_name)
 
     ##
     # Used internally to parse the PE File and extract Rich Header data.
     # Initializes self.compids and self.valid_checksum.
     # @param file_name The PE File to be parsed
     # @throws RichHeaderNotFoundException if the file does not contain a rich header
-    def _parse(self,file_name):
-        #make sure there is a header:
-        data = get_file_header( file_name )
+    def _parse(self, file_name):
+        # make sure there is a header:
+        data = get_file_header(file_name)
 
         compid_end_index = data.find(RICH_TEXT)
         if compid_end_index == -1:
@@ -82,27 +85,27 @@ class ParsedRichHeader:
 
         rich_offset = compid_end_index + RICH_TEXT_LENGTH
 
-        checksum_text = data[rich_offset:rich_offset+4]
+        checksum_text = data[rich_offset:rich_offset + 4]
         checksum_value = struct.unpack('<L', checksum_text)[0]
-        #start marker denotes the beginning of the rich header
-        start_marker = struct.pack('<LLLL',checksum_value ^ CHECKSUM_MASK, checksum_value, checksum_value, checksum_value )[0]
+        # start marker denotes the beginning of the rich header
+        start_marker = struct.pack('<LLLL', checksum_value ^ CHECKSUM_MASK, checksum_value, checksum_value, checksum_value)[0]
 
         rich_header_start = data.find(start_marker)
         if rich_header_start == -1:
             raise RichHeaderNotFoundException()
 
-        compid_start_index = rich_header_start + 16 # move past the marker and 3 checksums
+        compid_start_index = rich_header_start + 16  # move past the marker and 3 checksums
 
         compids = dict()
         for i in range(compid_start_index, compid_end_index, 8):
-            compid = struct.unpack('<L',data[i:i+4])[0] ^ checksum_value
-            count = struct.unpack('<L',data[i+4:i+8])[0] ^ checksum_value
-            compids[compid]=count
+            compid = struct.unpack('<L', data[i:i + 4])[0] ^ checksum_value
+            count = struct.unpack('<L', data[i + 4:i + 8])[0] ^ checksum_value
+            compids[compid] = count
 
-        ## A dictionary of compids and their occurrence counts
+        # A dictionary of compids and their occurrence counts
         self.compids = compids
-        ## A value for later reference to see if the checksum was valid
-        self.valid_checksum = self._validate_checksum( data, rich_header_start, checksum_value )
+        # A value for later reference to see if the checksum was valid
+        self.valid_checksum = self._validate_checksum(data, rich_header_start, checksum_value)
 
     ##
     # Compute the checksum value and see if it matches the checksum stored in
@@ -114,23 +117,23 @@ class ParsedRichHeader:
     # @returns True if the checksum is valid, false otherwise
     def _validate_checksum(self, data, rich_header_start, checksum):
 
-        #initialize the checksum offset at which the rich header is located
+        # initialize the checksum offset at which the rich header is located
         cksum = rich_header_start
 
-        #add the value from the pe header after rotating the value by its offset in the pe header
-        for i in range(0,rich_header_start):
-            if PE_START <= i <= PE_START+PE_FIELD_LENGTH-1:
+        # add the value from the pe header after rotating the value by its offset in the pe header
+        for i in range(0, rich_header_start):
+            if PE_START <= i <= PE_START + PE_FIELD_LENGTH - 1:
                 continue
             temp = ord(data[i])
-            cksum+= ((temp << (i%32)) | (temp >> (32-(i%32))) & 0xff)
-            cksum &=0xffffffff
+            cksum += ((temp << (i % 32)) | (temp >> (32 - (i % 32))) & 0xff)
+            cksum &= 0xffffffff
 
-        #add each compid to the checksum after rotating it by its occurrence count
+        # add each compid to the checksum after rotating it by its occurrence count
         for k in self.compids.keys():
-            cksum += (k << self.compids[k]%32 | k >> ( 32 - (self.compids[k]%32)))
-            cksum &=0xffffffff
+            cksum += (k << self.compids[k] % 32 | k >> (32 - (self.compids[k] % 32)))
+            cksum &= 0xffffffff
 
-        ## A convenient place for storing the checksum that was computing during checksum validation
+        # A convenient place for storing the checksum that was computing during checksum validation
         self.checksum = cksum
 
         return cksum == checksum
