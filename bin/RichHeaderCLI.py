@@ -6,7 +6,7 @@ import argparse
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Parse the Rich Header of a file.')
-    parser.add_argument("-f", "--file", type=str, help="Path to the file to parse.")
+    parser.add_argument("-f", "--file", type=str, required=True, help="Path to the file to parse.")
     args = parser.parse_args()
 
     print(args.file)
