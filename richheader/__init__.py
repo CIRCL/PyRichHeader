@@ -1,4 +1,4 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from richheader import RichHeader
+from .richheader import RichHeader

@@ -5,7 +5,7 @@ import struct
 
 # I'm trying not to bury the magic number...
 CHECKSUM_MASK = 0x536e6144  # DanS (actuall SnaD)
-RICH_TEXT = 'Rich'
+RICH_TEXT = b'Rich'
 RICH_TEXT_LENGTH = len(RICH_TEXT)
 PE_START = 0x3c
 PE_FIELD_LENGTH = 4
@@ -134,7 +134,12 @@ class RichHeader(object):
         for i in range(0, rich_header_start):
             if PE_START <= i <= PE_START + PE_FIELD_LENGTH - 1:
                 continue
-            temp = ord(self.header[i])
+            if isinstance(self.header[i], int):
+                # Python3
+                temp = self.header[i]
+            else:
+                # Python2
+                temp = ord(self.header[i])
             self.checksum += ((temp << (i % 32)) | (temp >> (32 - (i % 32))) & 0xff)
             self.checksum &= 0xffffffff
 
