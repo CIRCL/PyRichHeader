@@ -3,13 +3,6 @@
 
 import struct
 
-# I'm trying not to bury the magic number...
-CHECKSUM_MASK = 0x536e6144  # DanS (actuall SnaD)
-RICH_TEXT = b'Rich'
-RICH_TEXT_LENGTH = len(RICH_TEXT)
-PE_START = 0x3c
-PE_FIELD_LENGTH = 4
-
 
 class RichHeaderException(Exception):
     def __init__(self, message):
@@ -17,9 +10,9 @@ class RichHeaderException(Exception):
         self.message = message
 
 
-# A convenient exception to raise if the Rich Header doesn't exist.
 class RichHeaderNotFound(RichHeaderException):
     def __init__(self):
+        '''A convenient exception to raise if the Rich Header doesn't exist.'''
         super(RichHeaderNotFound, self).__init__("Rich header does not appear to exist")
 
 
@@ -27,42 +20,49 @@ class RichHeaderNotPE(RichHeaderException):
     pass
 
 
-# This class assists in parsing the Rich Header from PE Files.
-# The Rich Header is the section in the PE file following the dos stub but
-# preceding the lfa_new header which is inserted by link.exe when building with
-# the Microsoft Compilers.  The Rich Heder contains the following:
-#   marker, checksum, checksum, checksum,
-#   R_compid_i, R_occurrence_i,
-#   R_compid_i+1, R_occurrence_i+1, ...
-#   R_compid_N-1, R_occurrence_N-1, Rich, marker
-#
-#   marker = checksum XOR 0x536e6144
-#   R_compid_i is the ith compid XORed with the checksum
-#   R_occurrence_i is the ith occurrence  XORed with the checksum
-#   Rich = the text string 'Rich'
-#   The checksum is the sum of all the PE Header values rotated by their
-#   offset and the sum of all compids rotated by their occurrence counts.
-#
-# @see _validate_checksum code for checksum calculation
 class RichHeader(object):
 
-    def __init__(self, f):
+    def __init__(self):
         '''Creates a ParsedRichHeader from the specified PE File.
-            @throws RichHeaderException if the file does not contain a rich header
-            @param f The PE File to be parsed (path or open file)
+
+
+        This class assists in parsing the Rich Header from PE Files.
+        The Rich Header is the section in the PE file following the dos stub but
+        preceding the lfa_new header which is inserted by link.exe when building with
+        the Microsoft Compilers.  The Rich Heder contains the following:
+            marker, checksum, checksum, checksum,
+            R_compid_i, R_occurrence_i,
+            R_compid_i+1, R_occurrence_i+1, ...
+            R_compid_N-1, R_occurrence_N-1, Rich, marker
+
+            marker = checksum XOR 0x536e6144
+            R_compid_i is the ith compid XORed with the checksum
+            R_occurrence_i is the ith occurrence  XORed with the checksum
+            Rich = the text string 'Rich'
+
+        The checksum is the sum of all the PE Header values rotated by their
+        offset and the sum of all compids rotated by their occurrence counts.
+
+        @see _validate_checksum code for checksum calculation
+
         '''
-        if isinstance(f, str):
-            self.filehandle = open(f, 'rb')
-        else:
-            self.filehandle = f
-        self.f = f
-        # make sure there is a header:
-        self.header = self._get_file_header()
-        if self.header is not None:
-            self._parse()
+        self.checksum_mask = 0x536e6144  # DanS (actuall SnaD)
+        self.rich_text = b'Rich'
+        self.pe_start = 0x3c
+        self.pe_field_length = 4
 
     def get_results(self):
         return self.compids.items(), self.valid_checksum
+
+    def parse_path(self, path):
+        '''Opens a file and parse it to find the content of the Rich Header.'''
+        self.filehandle = open(path, 'rb')
+        self._parse()
+
+    def parse_filehandle(self, filehandle):
+        '''Takes an open file and parse it to find the content of the Rich Header.'''
+        self.filehandle = filehandle
+        self._parse()
 
     def _get_file_header(self):
         '''Locate the body of the data that contains the rich header.
@@ -72,9 +72,8 @@ class RichHeader(object):
             @throws RichHeaderEmptyFile if the file is empty
         '''
         with self.filehandle as f:
-            # start with 0x3c
-            f.seek(PE_START)
-            data = f.read(PE_FIELD_LENGTH)
+            f.seek(self.pe_start)  # start with 0x3c
+            data = f.read(self.pe_field_length)
 
             if data == '':
                 # File is empty, bail
@@ -91,16 +90,19 @@ class RichHeader(object):
         Initializes self.compids and self.valid_checksum.
             @throws RichHeaderNotFoundException if the file does not contain a rich header
         '''
-        compid_end_index = self.header.find(RICH_TEXT)
+        self.header = self._get_file_header()
+
+        compid_end_index = self.header.find(self.rich_text)
         if compid_end_index == -1:
             raise RichHeaderNotFound()
 
-        rich_offset = compid_end_index + RICH_TEXT_LENGTH
+        rich_offset = compid_end_index + len(self.rich_text)
 
         checksum_text = self.header[rich_offset:rich_offset + 4]
         checksum_value = struct.unpack('<L', checksum_text)[0]
         # start marker denotes the beginning of the rich header
-        start_marker = struct.pack('<LLLL', checksum_value ^ CHECKSUM_MASK, checksum_value, checksum_value, checksum_value)[0]
+        start_marker = struct.pack('<LLLL', checksum_value ^ self.checksum_mask,
+                                   checksum_value, checksum_value, checksum_value)[0]
 
         rich_header_start = self.header.find(start_marker)
         if rich_header_start == -1:
@@ -132,7 +134,7 @@ class RichHeader(object):
 
         # add the value from the pe header after rotating the value by its offset in the pe header
         for i in range(0, rich_header_start):
-            if PE_START <= i <= PE_START + PE_FIELD_LENGTH - 1:
+            if self.pe_start <= i <= self.pe_start + self.pe_field_length - 1:
                 continue
             if isinstance(self.header[i], int):
                 # Python3

@@ -11,11 +11,12 @@ if __name__ == "__main__":
 
     print(args.file)
     try:
-        ph = RichHeader(args.file)
+        rh = RichHeader()
+        rh.parse_path(args.file)
     except Exception as e:
         print('\t' + str(e))
         exit()
-    compids, valid = ph.get_results()
+    compids, valid = rh.get_results()
     if not valid:
         print('\tChecksum not valid!')
     for key, value in compids:
